@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+groq
+pdfplumber
+python-multipart
+python-dotenv
+reportlab
+python-docx
+psycopg2-binary
+python-dotenv
+supabase

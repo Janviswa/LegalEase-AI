@@ -1,0 +1,28 @@
+# Ignore virtual environment
+venv/
+
+# Ignore Node modules
+node_modules/
+
+# Ignore environment files
+.env.local
+
+# Ignore cache
+__pycache__/
+
+# Ignore zip files
+*.zip
+
+# Ignore logs (optional)
+*.log
+
+README.md
+
+# Ignore uploaded documents
+doc_*.pdf
+report_*.pdf
+*.pdf
+
+# Or ignore entire folder (BEST)
+documents/
+uploads/
