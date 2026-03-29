@@ -4,7 +4,8 @@
 
 LegalEase AI helps individuals and legal professionals instantly analyze contracts, draft legal documents, and understand their rights — all powered by Groq's LLaMA 3.1 model. Upload a PDF, get a structured risk analysis, chat with the document, and export a professional report in seconds.
 
-🌐 **Live App:** [legalease-ai-app.vercel.app](https://legalease-ai-app.vercel.app)  
+🌐 **Live App:** [legalease-ai-app.vercel.app](https://legalease-ai-app.vercel.app)
+
 🎥 **Demo Video:** [Watch on YouTube](https://www.youtube.com/your-video-link)
 
 ---
