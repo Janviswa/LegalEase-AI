@@ -53,8 +53,7 @@ export const SUPPORT_EMAIL = "jananiviswa05@gmail.com";
 // So NEVER change this unless deploying.
 // ─────────────────────────────────────────────────────────────
 
-export const API_BASE = "/api";
-
+export const API_BASE = import.meta.env.VITE_API_BASE || "https://legalease-ai-production.up.railway.app";
 
 // ─────────────────────────────────────────────────────────────
 // 🧪 MOCK RESULT (Fallback if backend fails)
