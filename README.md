@@ -273,9 +273,6 @@ LegalEase AI/
 - [FastAPI](https://fastapi.tiangolo.com) — Modern Python API framework
 - [Vercel](https://vercel.com) & [Railway](https://railway.app) — Hosting platforms
 
----
-
-> Built with ❤️ for making legal documents accessible to everyone.
 
 ---
 
@@ -293,3 +290,7 @@ If you found this project helpful, please consider giving it a ⭐ star on GitHu
 
 [![GitHub](https://img.shields.io/badge/GitHub-Janviswa-181717?style=for-the-badge&logo=github)](https://github.com/Janviswa)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Janani%20V-0A66C2?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/janani-v)
+
+---
+
+> Built with ❤️ for making legal documents accessible to everyone.
