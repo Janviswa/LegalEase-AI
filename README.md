@@ -6,7 +6,7 @@ LegalEase AI helps individuals and legal professionals instantly analyze contrac
 
 🌐 **Live App:** [legalease-ai-app.vercel.app](https://legalease-ai-app.vercel.app)
 
-🎥 **Demo Video:** [Watch on YouTube](https://www.youtube.com/your-video-link)
+🎥 **Demo Video:** [Watch on YouTube](https://youtu.be/ZzpehIfxrMI)
 
 ---
 
