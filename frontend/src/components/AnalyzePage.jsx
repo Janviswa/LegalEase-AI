@@ -526,7 +526,7 @@ export default function AnalyzePage({ dark, toast, token, onAnalysisComplete, on
             <div className="flex items-start gap-2">
               <Shield size={13} style={{ color: "#4f6ef7" }} className="flex-shrink-0 mt-0.5" />
               <p className="text-xs leading-relaxed" style={{ color: D.textMuted }}>
-                Documents processed in-memory only. Never stored on our servers.
+                Document text processed in-memory. Analysis history saved securely to your account.
               </p>
             </div>
           </div>
