@@ -18,8 +18,13 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env.local"))
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-FROM_EMAIL     = os.getenv("SMTP_USER", "")          # your Gmail or verified Resend domain
+FROM_EMAIL     = os.getenv("SMTP_USER", "")
 APP_URL        = os.getenv("APP_URL", "http://localhost:3000")
+
+# Resend requires a verified sender domain.
+# Until you verify your own domain, use Resend's shared address (works immediately).
+# To use your own domain: resend.com → Domains → Add domain → verify DNS records
+RESEND_FROM = "LegalEase AI <onboarding@resend.dev>"
 
 # Keep these exports so main.py imports don't break
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -39,13 +44,8 @@ def _resend_send(to: str, subject: str, html: str, plain: str,
     if not RESEND_API_KEY:
         return False  # caller handles dev mode
 
-    # Resend requires a verified from address OR use onboarding@resend.dev for testing
-    from_addr = FROM_EMAIL if FROM_EMAIL else "LegalEase AI <onboarding@resend.dev>"
-    if FROM_EMAIL and "@" in FROM_EMAIL and "resend" not in FROM_EMAIL:
-        from_addr = f"LegalEase AI <{FROM_EMAIL}>"
-
     payload = {
-        "from":    from_addr,
+        "from":    RESEND_FROM,
         "to":      [to],
         "subject": subject,
         "html":    html,
