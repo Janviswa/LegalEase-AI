@@ -1,41 +1,94 @@
 """
-email_service.py  —  Password-reset email for LegalEase AI
-────────────────────────────────────────────────────────────
-Configure SMTP_HOST / SMTP_USER / SMTP_PASSWORD in backend/.env.local
-to send real emails.
+email_service.py  —  Email sending for LegalEase AI via Resend API
+──────────────────────────────────────────────────────────────────
+Uses Resend (resend.com) instead of raw SMTP — works on Railway/Render/Vercel
+since it sends over HTTPS (port 443), not blocked SMTP port 587.
 
-Without those values the reset link is printed to the server console
-(dev mode) — no email account needed for development.
+Setup:
+  1. Sign up free at resend.com (100 emails/day free)
+  2. Create an API key
+  3. Add RESEND_API_KEY to your Railway environment variables
+  4. Add SMTP_USER (your Gmail) as the "from" address — or use onboarding@resend.dev for testing
+
+Dev mode (no RESEND_API_KEY set): link is printed to console only.
 """
-import os, smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import os, json, urllib.request, urllib.error
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env.local"))
 
-SMTP_HOST = os.getenv("SMTP_HOST",     "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER",     "")
-SMTP_PASS = os.getenv("SMTP_PASSWORD", "").replace(" ", "")  # Strip spaces from Gmail app passwords
-APP_URL   = os.getenv("APP_URL",       "http://localhost:3000")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+FROM_EMAIL     = os.getenv("SMTP_USER", "")          # your Gmail or verified Resend domain
+APP_URL        = os.getenv("APP_URL", "http://localhost:3000")
 
-__all__ = ["send_reset_email", "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"]
+# Keep these exports so main.py imports don't break
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = FROM_EMAIL
+SMTP_PASS = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
+
+__all__ = ["send_reset_email", "send_email", "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"]
+
+
+def _resend_send(to: str, subject: str, html: str, plain: str,
+                 attachments: list = None) -> bool:
+    """
+    Send email via Resend REST API (HTTPS — works on Railway free tier).
+    attachments: list of {"filename": str, "content": base64_str}
+    """
+    if not RESEND_API_KEY:
+        return False  # caller handles dev mode
+
+    # Resend requires a verified from address OR use onboarding@resend.dev for testing
+    from_addr = FROM_EMAIL if FROM_EMAIL else "LegalEase AI <onboarding@resend.dev>"
+    if FROM_EMAIL and "@" in FROM_EMAIL and "resend" not in FROM_EMAIL:
+        from_addr = f"LegalEase AI <{FROM_EMAIL}>"
+
+    payload = {
+        "from":    from_addr,
+        "to":      [to],
+        "subject": subject,
+        "html":    html,
+        "text":    plain,
+    }
+    if attachments:
+        payload["attachments"] = attachments
+
+    data    = json.dumps(payload).encode("utf-8")
+    req     = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data    = data,
+        headers = {
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type":  "application/json",
+        },
+        method  = "POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = json.loads(resp.read())
+            print(f"[EMAIL] Resend OK → {to} | id={body.get('id')}")
+            return True
+    except urllib.error.HTTPError as e:
+        err = e.read().decode()
+        print(f"[EMAIL ERROR] Resend HTTP {e.code}: {err}")
+        raise RuntimeError(f"Resend API error {e.code}: {err}")
+    except Exception as e:
+        print(f"[EMAIL ERROR] {type(e).__name__}: {e}")
+        raise
 
 
 def send_reset_email(to_email: str, reset_token: str, user_name: str = "") -> bool:
     reset_url = f"{APP_URL}?reset_token={reset_token}"
     greeting  = f"Hi {user_name}," if user_name else "Hi,"
 
-    # ── Dev fallback (no SMTP configured) ────────────────────────────────────
-    if not SMTP_USER or not SMTP_PASS or not SMTP_HOST:
-        print(f"\n{'─' * 62}")
+    if not RESEND_API_KEY:
+        print(f"\n{'─'*62}")
         print(f"  [DEV MODE] Password-reset link for {to_email}:")
         print(f"  {reset_url}")
-        print(f"{'─' * 62}\n")
+        print(f"{'─'*62}\n")
         return True
 
-    # ── HTML email ────────────────────────────────────────────────────────────
     html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>
 body{{font-family:'Segoe UI',Arial,sans-serif;background:#0d1117;margin:0;padding:24px}}
@@ -73,21 +126,15 @@ p{{font-size:13px;color:#8b949e;line-height:1.7;margin:0 0 14px}}
         "Expires in 30 minutes. Ignore if you didn't request this."
     )
 
-    try:
-        msg            = MIMEMultipart("alternative")
-        msg["Subject"] = "Reset your LegalEase AI password"
-        msg["From"]    = f"LegalEase AI <{SMTP_USER}>"
-        msg["To"]      = to_email
-        msg.attach(MIMEText(plain, "plain"))
-        msg.attach(MIMEText(html,  "html"))
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as srv:
-            srv.ehlo()
-            srv.starttls()
-            srv.login(SMTP_USER, SMTP_PASS)
-            srv.sendmail(SMTP_USER, to_email, msg.as_string())
-        print(f"[EMAIL] Reset link sent → {to_email}")
-        return True
-    except Exception as e:
-        print(f"[EMAIL ERROR] {type(e).__name__}: {e}")
-        print(f"[EMAIL CONFIG] host={SMTP_HOST}:{SMTP_PORT} user={SMTP_USER} pass_len={len(SMTP_PASS)}")
-        raise  # Re-raise so caller can surface the real error
+    _resend_send(to_email, "Reset your LegalEase AI password", html, plain)
+    return True
+
+
+def send_email(to: str, subject: str, html: str, plain: str,
+               attachments: list = None) -> bool:
+    """Generic send — used by e-sign endpoint in main.py."""
+    if not RESEND_API_KEY:
+        print(f"[DEV MODE] Email to {to}: {subject}")
+        return False  # signals dev mode to caller
+    _resend_send(to, subject, html, plain, attachments)
+    return True
