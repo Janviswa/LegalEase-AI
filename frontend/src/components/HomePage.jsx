@@ -116,7 +116,7 @@ export default function HomePage({ dark, user, onGoAnalyze, onGoLaws, onGoDrafts
           {/* Trust line */}
           <p className="flex items-center justify-center gap-1.5 text-xs" style={{ color:D.textSubtle }}>
             <Shield size={11} />
-            Documents processed in-memory only · Never stored · PDF · Word · TXT · Groq LLaMA 3.1
+            PDF · Word · TXT · Groq LLaMA 3.1 · History saved to your account
           </p>
         </div>
       </section>
