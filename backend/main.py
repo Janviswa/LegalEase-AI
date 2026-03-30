@@ -20,16 +20,13 @@ from reportlab.lib.pagesizes import A4
 
 from groq_client import analyze_legal_text
 import auth as _auth
-from email_service import send_reset_email, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
+from email_service import send_reset_email, send_email, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
 
 # ── Supabase client (shared from auth module) ─────────────────────────────────
 from supabase import create_client as _sb_create
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 _sb = _sb_create(_SUPABASE_URL, _SUPABASE_KEY) if _SUPABASE_URL and _SUPABASE_KEY else None
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-import smtplib
 import io
 from docx import Document as DocxDocument
 
@@ -45,10 +42,7 @@ DOCUMENT_CONTEXT = []
 # ─────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://legalease-ai-app.vercel.app",
-        "http://localhost:3000",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -824,51 +818,29 @@ p{{font-size:13px;color:#8b949e;line-height:1.7;margin:0 0 12px}}
         f"Please sign and return to {user.get('email','')}.\n\nSent via LegalEase AI."
     )
 
-    if not SMTP_USER or not SMTP_PASS:
-        print(f"\n[DEV MODE] E-sign request would be sent to {body.to_email} for doc: {body.doc_title}")
-        return {"success": True, "dev": True, "message": "Dev mode — email printed to console"}
+    # ── Send via Resend API (HTTPS — works on Railway, no SMTP port blocking) ──
+    import base64 as _b64
+    safe_title  = body.doc_title.replace(" ", "_")[:50]
+    attachments = [{
+        "filename": f"{safe_title}.pdf",
+        "content":  _b64.b64encode(pdf_bytes).decode("utf-8"),
+    }]
 
     try:
-        msg            = MIMEMultipart("mixed")
-        msg["Subject"] = f"Signature Requested: {body.doc_title}"
-        msg["From"]    = f"LegalEase AI <{SMTP_USER}>"
-        msg["To"]      = body.to_email
-        msg["Reply-To"]= user.get("email", SMTP_USER)
-
-        alt = MIMEMultipart("alternative")
-        alt.attach(MIMEText(plain, "plain"))
-        alt.attach(MIMEText(html,  "html"))
-        msg.attach(alt)
-
-        # Attach PDF
-        part = MIMEBase("application", "pdf")
-        part.set_payload(pdf_bytes)
-        encoders.encode_base64(part)
-        safe_title = body.doc_title.replace(" ", "_")[:50]
-        part.add_header("Content-Disposition", "attachment",
-                        filename=f"{safe_title}.pdf")
-        msg.attach(part)
-
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as srv:
-            srv.ehlo()
-            srv.starttls()
-            srv.login(SMTP_USER, SMTP_PASS)
-            srv.sendmail(SMTP_USER, body.to_email, msg.as_string())
-
-        print(f"[EMAIL] E-sign request sent → {body.to_email}")
+        sent = send_email(
+            to          = body.to_email,
+            subject     = f"Signature Requested: {body.doc_title}",
+            html        = html,
+            plain       = plain,
+            attachments = attachments,
+        )
+        if not sent:
+            print(f"\n[DEV MODE] E-sign would be sent to {body.to_email} — set RESEND_API_KEY on Railway")
+            return {"success": True, "dev": True, "message": "Dev mode — set RESEND_API_KEY to send real emails"}
         return {"success": True, "message": f"Signing request sent to {body.to_email}"}
     except Exception as e:
-        import traceback
         print(f"[EMAIL ERROR] {type(e).__name__}: {e}")
-        traceback.print_exc()
-        # Surface a clear error to the frontend
-        err_msg = str(e)
-        if "authentication" in err_msg.lower() or "535" in err_msg or "534" in err_msg:
-            raise HTTPException(status_code=500, detail="Gmail authentication failed — make sure you are using an App Password (not your regular Gmail password). Go to Google Account → Security → App Passwords to generate one.")
-        elif "connection" in err_msg.lower() or "timeout" in err_msg.lower():
-            raise HTTPException(status_code=500, detail="Could not connect to Gmail SMTP server — check your internet connection and firewall settings.")
-        else:
-            raise HTTPException(status_code=500, detail=f"Email send failed: {err_msg}")
+        raise HTTPException(status_code=500, detail=f"Email send failed: {str(e)}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # HISTORY ENDPOINTS  (Supabase-backed — replaces localStorage on frontend)
