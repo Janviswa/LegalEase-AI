@@ -1,93 +1,98 @@
 """
-email_service.py  —  Email sending via Brevo (formerly Sendinblue) SMTP API
-─────────────────────────────────────────────────────────────────────────────
-Brevo free tier: 300 emails/day, no domain verification needed,
-works on Railway via HTTPS (port 587 to smtp-relay.brevo.com IS allowed
-because Brevo's SMTP relay runs on port 587 AND 465 AND 25 — Railway
-only blocks outbound connections to gmail.com/yahoo.com etc., not to
-dedicated transactional email relay servers like Brevo/SendGrid).
+email_service.py — Email via Brevo HTTP API (not SMTP)
+────────────────────────────────────────────────────────
+Uses Brevo's REST API over HTTPS port 443 — guaranteed to work on Railway.
+No SMTP ports needed at all.
 
 Setup:
-  1. Sign up free at brevo.com
-  2. Go to SMTP & API → SMTP tab → copy your SMTP login and Master Password
-  3. Add to Railway env vars:
-       BREVO_SMTP_USER  = your Brevo SMTP login (looks like your email)
-       BREVO_SMTP_PASS  = your Brevo Master Password (not your account password)
-
-Dev mode (no BREVO_SMTP_USER): prints to console only.
+  1. brevo.com → Sign up free (300 emails/day)
+  2. Top-right menu → Profile → SMTP & API → API Keys tab → Generate API key
+     (This is DIFFERENT from the SMTP password — it's under "API Keys" tab)
+  3. Add to Railway Variables:
+       BREVO_API_KEY = xkeysib-xxxxxxxxxxxxxxxx...
+  4. Your sender jananiviswa05@gmail.com is already verified in Brevo ✅
 """
-import os, smtplib
+import os, json, urllib.request, urllib.error, smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
+import base64
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env.local"))
 
-# ── Brevo SMTP credentials ────────────────────────────────────────────────────
-BREVO_HOST = "smtp-relay.brevo.com"
-BREVO_PORT = 587
-BREVO_USER = os.getenv("BREVO_SMTP_USER", "")   # your Brevo SMTP login
-BREVO_PASS = os.getenv("BREVO_SMTP_PASS", "")   # Brevo Master Password
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+FROM_EMAIL    = os.getenv("SMTP_USER", "jananiviswa05@gmail.com")
+FROM_NAME     = "LegalEase AI"
+APP_URL       = os.getenv("APP_URL", "http://localhost:3000")
 
-# Sender address — must be verified in Brevo (just add your Gmail there, takes 1 click)
-FROM_EMAIL  = os.getenv("SMTP_USER", "jananiviswa05@gmail.com")
-FROM_PRETTY = f"LegalEase AI <{FROM_EMAIL}>"
-
-APP_URL = os.getenv("APP_URL", "http://localhost:3000")
-
-# Keep legacy exports so existing main.py imports don't break
-SMTP_HOST = BREVO_HOST
-SMTP_PORT = BREVO_PORT
-SMTP_USER = BREVO_USER
-SMTP_PASS = BREVO_PASS
+# Legacy exports — keep so main.py imports don't break
+SMTP_HOST = "smtp-relay.brevo.com"
+SMTP_PORT = 587
+SMTP_USER = os.getenv("BREVO_SMTP_USER", "")
+SMTP_PASS = os.getenv("BREVO_SMTP_PASS", "")
 
 __all__ = ["send_reset_email", "send_email", "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"]
 
 
-def _brevo_send(to: str, subject: str, html: str, plain: str,
-                attachments: list = None) -> bool:
+def _brevo_api_send(to_email: str, to_name: str, subject: str,
+                    html: str, plain: str, attachments: list = None) -> bool:
     """
-    Send via Brevo SMTP relay.
+    Send via Brevo Transactional Email API (HTTPS/443).
     attachments: list of (filename, bytes) tuples
     """
-    if not BREVO_USER or not BREVO_PASS:
-        return False  # dev mode — caller prints to console
+    if not BREVO_API_KEY:
+        return False
 
-    msg = MIMEMultipart("mixed")
-    msg["Subject"] = subject
-    msg["From"]    = FROM_PRETTY
-    msg["To"]      = to
-
-    alt = MIMEMultipart("alternative")
-    alt.attach(MIMEText(plain, "plain"))
-    alt.attach(MIMEText(html,  "html"))
-    msg.attach(alt)
+    payload = {
+        "sender":      {"name": FROM_NAME, "email": FROM_EMAIL},
+        "to":          [{"email": to_email, "name": to_name or to_email}],
+        "subject":     subject,
+        "htmlContent": html,
+        "textContent": plain,
+    }
 
     if attachments:
-        for filename, data in attachments:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(data)
-            encoders.encode_base64(part)
-            part.add_header("Content-Disposition", "attachment", filename=filename)
-            msg.attach(part)
+        payload["attachment"] = [
+            {
+                "name":    filename,
+                "content": base64.b64encode(data).decode("utf-8"),
+            }
+            for filename, data in attachments
+        ]
 
-    with smtplib.SMTP(BREVO_HOST, BREVO_PORT) as srv:
-        srv.ehlo()
-        srv.starttls()
-        srv.login(BREVO_USER, BREVO_PASS)
-        srv.sendmail(FROM_EMAIL, to, msg.as_string())
+    data = json.dumps(payload).encode("utf-8")
+    req  = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data    = data,
+        headers = {
+            "api-key":      BREVO_API_KEY,
+            "Content-Type": "application/json",
+            "Accept":       "application/json",
+        },
+        method = "POST",
+    )
 
-    print(f"[EMAIL] Brevo sent → {to} | subject: {subject}")
-    return True
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = json.loads(resp.read())
+            print(f"[EMAIL] Brevo API OK → {to_email} | messageId={body.get('messageId')}")
+            return True
+    except urllib.error.HTTPError as e:
+        err = e.read().decode()
+        print(f"[EMAIL ERROR] Brevo API HTTP {e.code}: {err}")
+        raise RuntimeError(f"Brevo API {e.code}: {err}")
+    except Exception as e:
+        print(f"[EMAIL ERROR] {type(e).__name__}: {e}")
+        raise
 
 
 def send_reset_email(to_email: str, reset_token: str, user_name: str = "") -> bool:
     reset_url = f"{APP_URL}?reset_token={reset_token}"
     greeting  = f"Hi {user_name}," if user_name else "Hi,"
 
-    if not BREVO_USER or not BREVO_PASS:
+    if not BREVO_API_KEY:
         print(f"\n{'─'*62}")
         print(f"  [DEV MODE] Password-reset link for {to_email}:")
         print(f"  {reset_url}")
@@ -125,27 +130,15 @@ p{{font-size:13px;color:#8b949e;line-height:1.7;margin:0 0 14px}}
 </div></body></html>"""
 
     plain = f"{greeting}\n\nReset your password:\n{reset_url}\n\nExpires in 30 minutes."
-
-    try:
-        _brevo_send(to_email, "Reset your LegalEase AI password", html, plain)
-        return True
-    except Exception as e:
-        print(f"[EMAIL ERROR] {type(e).__name__}: {e}")
-        raise
+    _brevo_api_send(to_email, user_name, "Reset your LegalEase AI password", html, plain)
+    return True
 
 
 def send_email(to: str, subject: str, html: str, plain: str,
                attachments: list = None) -> bool:
-    """
-    Generic send used by e-sign endpoint.
-    attachments: list of (filename, bytes) tuples
-    """
-    if not BREVO_USER or not BREVO_PASS:
-        print(f"[DEV MODE] Would send '{subject}' to {to} — set BREVO_SMTP_USER + BREVO_SMTP_PASS")
+    """Generic send — used by e-sign endpoint in main.py."""
+    if not BREVO_API_KEY:
+        print(f"[DEV MODE] Would send '{subject}' to {to} — set BREVO_API_KEY on Railway")
         return False
-    try:
-        _brevo_send(to, subject, html, plain, attachments)
-        return True
-    except Exception as e:
-        print(f"[EMAIL ERROR] {type(e).__name__}: {e}")
-        raise
+    _brevo_api_send(to, to, subject, html, plain, attachments)
+    return True
