@@ -402,10 +402,10 @@ export default function SettingsPage({ dark, setDark, user, toast, token, onClea
               {exporting ? "Exporting…" : "Export"}
             </button>
           </Row>
-          <Row icon={Info} label="Data Storage" desc="Your data is stored locally in this browser" last>
+          <Row icon={Info} label="Data Storage" desc="Your history and account are stored securely in Supabase" last>
             <span className="text-xs px-2.5 py-1 rounded-lg font-medium"
-              style={{ background: D.surfaceAlt, color: D.textMuted }}>
-              Local only
+              style={{ background: dark ? "#0e2a1a" : "#dcfce7", color: "#22c55e" }}>
+              Cloud ✓
             </span>
           </Row>
         </Section>
@@ -465,7 +465,7 @@ export default function SettingsPage({ dark, setDark, user, toast, token, onClea
         <div className="text-center pb-6">
           <p className="text-xs" style={{ color: D.textSubtle }}>LegalEase AI · v1.0.0</p>
           <p className="text-xs mt-1" style={{ color: D.textSubtle }}>
-            Built for Indian legal professionals · All data stored locally
+            Built for Indian legal professionals · History synced to Supabase
           </p>
         </div>
 
