@@ -818,13 +818,9 @@ p{{font-size:13px;color:#8b949e;line-height:1.7;margin:0 0 12px}}
         f"Please sign and return to {user.get('email','')}.\n\nSent via LegalEase AI."
     )
 
-    # ── Send via Resend API (HTTPS — works on Railway, no SMTP port blocking) ──
-    import base64 as _b64
+    # ── Send via Brevo SMTP relay ─────────────────────────────────────────────
     safe_title  = body.doc_title.replace(" ", "_")[:50]
-    attachments = [{
-        "filename": f"{safe_title}.pdf",
-        "content":  _b64.b64encode(pdf_bytes).decode("utf-8"),
-    }]
+    attachments = [(f"{safe_title}.pdf", pdf_bytes)]  # (filename, bytes) tuples
 
     try:
         sent = send_email(
@@ -835,8 +831,8 @@ p{{font-size:13px;color:#8b949e;line-height:1.7;margin:0 0 12px}}
             attachments = attachments,
         )
         if not sent:
-            print(f"\n[DEV MODE] E-sign would be sent to {body.to_email} — set RESEND_API_KEY on Railway")
-            return {"success": True, "dev": True, "message": "Dev mode — set RESEND_API_KEY to send real emails"}
+            print(f"\n[DEV MODE] E-sign would be sent to {body.to_email} — set BREVO_SMTP_USER + BREVO_SMTP_PASS on Railway")
+            return {"success": True, "dev": True, "message": "Dev mode — set BREVO_SMTP_USER and BREVO_SMTP_PASS to send real emails"}
         return {"success": True, "message": f"Signing request sent to {body.to_email}"}
     except Exception as e:
         print(f"[EMAIL ERROR] {type(e).__name__}: {e}")
