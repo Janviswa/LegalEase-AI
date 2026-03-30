@@ -1,88 +1,93 @@
 """
-email_service.py  —  Email sending for LegalEase AI via Resend API
-──────────────────────────────────────────────────────────────────
-Uses Resend (resend.com) instead of raw SMTP — works on Railway/Render/Vercel
-since it sends over HTTPS (port 443), not blocked SMTP port 587.
+email_service.py  —  Email sending via Brevo (formerly Sendinblue) SMTP API
+─────────────────────────────────────────────────────────────────────────────
+Brevo free tier: 300 emails/day, no domain verification needed,
+works on Railway via HTTPS (port 587 to smtp-relay.brevo.com IS allowed
+because Brevo's SMTP relay runs on port 587 AND 465 AND 25 — Railway
+only blocks outbound connections to gmail.com/yahoo.com etc., not to
+dedicated transactional email relay servers like Brevo/SendGrid).
 
 Setup:
-  1. Sign up free at resend.com (100 emails/day free)
-  2. Create an API key
-  3. Add RESEND_API_KEY to your Railway environment variables
-  4. Add SMTP_USER (your Gmail) as the "from" address — or use onboarding@resend.dev for testing
+  1. Sign up free at brevo.com
+  2. Go to SMTP & API → SMTP tab → copy your SMTP login and Master Password
+  3. Add to Railway env vars:
+       BREVO_SMTP_USER  = your Brevo SMTP login (looks like your email)
+       BREVO_SMTP_PASS  = your Brevo Master Password (not your account password)
 
-Dev mode (no RESEND_API_KEY set): link is printed to console only.
+Dev mode (no BREVO_SMTP_USER): prints to console only.
 """
-import os, json, urllib.request, urllib.error
+import os, smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env.local"))
 
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-FROM_EMAIL     = os.getenv("SMTP_USER", "")
-APP_URL        = os.getenv("APP_URL", "http://localhost:3000")
+# ── Brevo SMTP credentials ────────────────────────────────────────────────────
+BREVO_HOST = "smtp-relay.brevo.com"
+BREVO_PORT = 587
+BREVO_USER = os.getenv("BREVO_SMTP_USER", "")   # your Brevo SMTP login
+BREVO_PASS = os.getenv("BREVO_SMTP_PASS", "")   # Brevo Master Password
 
-# Resend requires a verified sender domain.
-# Until you verify your own domain, use Resend's shared address (works immediately).
-# To use your own domain: resend.com → Domains → Add domain → verify DNS records
-RESEND_FROM = "LegalEase AI <onboarding@resend.dev>"
+# Sender address — must be verified in Brevo (just add your Gmail there, takes 1 click)
+FROM_EMAIL  = os.getenv("SMTP_USER", "jananiviswa05@gmail.com")
+FROM_PRETTY = f"LegalEase AI <{FROM_EMAIL}>"
 
-# Keep these exports so main.py imports don't break
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = FROM_EMAIL
-SMTP_PASS = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
+APP_URL = os.getenv("APP_URL", "http://localhost:3000")
+
+# Keep legacy exports so existing main.py imports don't break
+SMTP_HOST = BREVO_HOST
+SMTP_PORT = BREVO_PORT
+SMTP_USER = BREVO_USER
+SMTP_PASS = BREVO_PASS
 
 __all__ = ["send_reset_email", "send_email", "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"]
 
 
-def _resend_send(to: str, subject: str, html: str, plain: str,
-                 attachments: list = None) -> bool:
+def _brevo_send(to: str, subject: str, html: str, plain: str,
+                attachments: list = None) -> bool:
     """
-    Send email via Resend REST API (HTTPS — works on Railway free tier).
-    attachments: list of {"filename": str, "content": base64_str}
+    Send via Brevo SMTP relay.
+    attachments: list of (filename, bytes) tuples
     """
-    if not RESEND_API_KEY:
-        return False  # caller handles dev mode
+    if not BREVO_USER or not BREVO_PASS:
+        return False  # dev mode — caller prints to console
 
-    payload = {
-        "from":    RESEND_FROM,
-        "to":      [to],
-        "subject": subject,
-        "html":    html,
-        "text":    plain,
-    }
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
+    msg["From"]    = FROM_PRETTY
+    msg["To"]      = to
+
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(plain, "plain"))
+    alt.attach(MIMEText(html,  "html"))
+    msg.attach(alt)
+
     if attachments:
-        payload["attachments"] = attachments
+        for filename, data in attachments:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(data)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment", filename=filename)
+            msg.attach(part)
 
-    data    = json.dumps(payload).encode("utf-8")
-    req     = urllib.request.Request(
-        "https://api.resend.com/emails",
-        data    = data,
-        headers = {
-            "Authorization": f"Bearer {RESEND_API_KEY}",
-            "Content-Type":  "application/json",
-        },
-        method  = "POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = json.loads(resp.read())
-            print(f"[EMAIL] Resend OK → {to} | id={body.get('id')}")
-            return True
-    except urllib.error.HTTPError as e:
-        err = e.read().decode()
-        print(f"[EMAIL ERROR] Resend HTTP {e.code}: {err}")
-        raise RuntimeError(f"Resend API error {e.code}: {err}")
-    except Exception as e:
-        print(f"[EMAIL ERROR] {type(e).__name__}: {e}")
-        raise
+    with smtplib.SMTP(BREVO_HOST, BREVO_PORT) as srv:
+        srv.ehlo()
+        srv.starttls()
+        srv.login(BREVO_USER, BREVO_PASS)
+        srv.sendmail(FROM_EMAIL, to, msg.as_string())
+
+    print(f"[EMAIL] Brevo sent → {to} | subject: {subject}")
+    return True
 
 
 def send_reset_email(to_email: str, reset_token: str, user_name: str = "") -> bool:
     reset_url = f"{APP_URL}?reset_token={reset_token}"
     greeting  = f"Hi {user_name}," if user_name else "Hi,"
 
-    if not RESEND_API_KEY:
+    if not BREVO_USER or not BREVO_PASS:
         print(f"\n{'─'*62}")
         print(f"  [DEV MODE] Password-reset link for {to_email}:")
         print(f"  {reset_url}")
@@ -103,7 +108,7 @@ p{{font-size:13px;color:#8b949e;line-height:1.7;margin:0 0 14px}}
       color:#fff !important;text-decoration:none;padding:12px 24px;
       border-radius:10px;font-weight:700;font-size:13px;margin:6px 0 18px}}
 .url{{font-size:11px;color:#484f58;word-break:break-all;background:#0d1117;
-      padding:9px 12px;border-radius:7px;border:1px solid rgba(48,54,70,.9);margin-bottom:16px}}
+      padding:9px 12px;border-radius:7px;border:1px solid rgba(48,54,70,.9)}}
 .foot{{font-size:11px;color:#484f58;border-top:1px solid rgba(48,54,70,.9);
        padding:16px 30px;background:#0d1117}}
 </style></head><body>
@@ -111,30 +116,36 @@ p{{font-size:13px;color:#8b949e;line-height:1.7;margin:0 0 14px}}
   <div class="top"><div class="logo">⚖️ LegalEase AI</div></div>
   <div class="body">
     <h2>Reset your password</h2>
-    <p>{greeting}<br>We received a request to reset your LegalEase AI password.
-    Click the button — link expires in <strong style="color:#e6edf3">30 minutes</strong>.</p>
-    <a class="btn" href="{reset_url}" target="_self">Reset Password →</a>
-    <p style="font-size:11px;margin-bottom:6px">Or paste this URL in your browser:</p>
+    <p>{greeting}<br>Click the button below — link expires in <strong style="color:#e6edf3">30 minutes</strong>.</p>
+    <a class="btn" href="{reset_url}">Reset Password →</a>
+    <p style="font-size:11px;margin-bottom:6px">Or paste this URL:</p>
     <div class="url">{reset_url}</div>
-    <p style="font-size:11px;margin:0">Ignore this email if you didn't request a reset.</p>
   </div>
-  <div class="foot">LegalEase AI · Not a substitute for qualified legal advice.</div>
+  <div class="foot">LegalEase AI · Not a substitute for legal advice.</div>
 </div></body></html>"""
 
-    plain = (
-        f"{greeting}\n\nReset your LegalEase AI password:\n{reset_url}\n\n"
-        "Expires in 30 minutes. Ignore if you didn't request this."
-    )
+    plain = f"{greeting}\n\nReset your password:\n{reset_url}\n\nExpires in 30 minutes."
 
-    _resend_send(to_email, "Reset your LegalEase AI password", html, plain)
-    return True
+    try:
+        _brevo_send(to_email, "Reset your LegalEase AI password", html, plain)
+        return True
+    except Exception as e:
+        print(f"[EMAIL ERROR] {type(e).__name__}: {e}")
+        raise
 
 
 def send_email(to: str, subject: str, html: str, plain: str,
                attachments: list = None) -> bool:
-    """Generic send — used by e-sign endpoint in main.py."""
-    if not RESEND_API_KEY:
-        print(f"[DEV MODE] Email to {to}: {subject}")
-        return False  # signals dev mode to caller
-    _resend_send(to, subject, html, plain, attachments)
-    return True
+    """
+    Generic send used by e-sign endpoint.
+    attachments: list of (filename, bytes) tuples
+    """
+    if not BREVO_USER or not BREVO_PASS:
+        print(f"[DEV MODE] Would send '{subject}' to {to} — set BREVO_SMTP_USER + BREVO_SMTP_PASS")
+        return False
+    try:
+        _brevo_send(to, subject, html, plain, attachments)
+        return True
+    except Exception as e:
+        print(f"[EMAIL ERROR] {type(e).__name__}: {e}")
+        raise
