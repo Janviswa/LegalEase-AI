@@ -53,7 +53,10 @@ export const SUPPORT_EMAIL = "jananiviswa05@gmail.com";
 // So NEVER change this unless deploying.
 // ─────────────────────────────────────────────────────────────
 
-export const API_BASE = import.meta.env.VITE_API_BASE || "https://legalease-ai-production.up.railway.app";
+// In production (Vercel), set VITE_API_BASE to your Railway backend URL.
+// Locally, Vite proxies /api → http://127.0.0.1:8000 so /api works fine.
+export const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+
 
 // ─────────────────────────────────────────────────────────────
 // 🧪 MOCK RESULT (Fallback if backend fails)
